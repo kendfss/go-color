@@ -1,7 +1,7 @@
 /*
 	Package color implements some simple RGB/HSL color conversions for golang.
 
-	By Brandon Thomson
+	By Brandon Thomson, Kenneth Sabalo
 
 	Adapted from
 	http://code.google.com/p/closure-library/source/browse/trunk/closure/goog/color/color.js
@@ -21,11 +21,23 @@ package color
 import (
 	"errors"
 	"fmt"
-	"math"
+	"image/color"
+	"math/rand"
+
+	"github.com/kendfss/oprs/math/real"
 )
 
 type RGB struct {
-	R, G, B float64
+	R, G, B float64 // Red, Green, Blue values in [0, 1]
+}
+
+// Convert r, g, b values in the range [0, 255]^3
+func (RGB) constructor(r, g, b uint8) RGB {
+	return RGB{
+		real.MapVal(float64(r), 0, 0xff, 0, 1),
+		real.MapVal(float64(g), 0, 0xff, 0, 1),
+		real.MapVal(float64(b), 0, 0xff, 0, 1),
+	}
 }
 
 // Takes a string like '#123456' or 'ABCDEF' and returns an RGB
@@ -53,14 +65,14 @@ func (c RGB) ToHSL() HSL {
 	g := c.G
 	b := c.B
 
-	max := math.Max(math.Max(r, g), b)
-	min := math.Min(math.Min(r, g), b)
+	M := max(r, g, b)
+	m := min(r, g, b)
 
 	// Luminosity is the average of the max and min rgb color intensities.
-	l = (max + min) / 2
+	l = (M + m) / 2
 
 	// saturation
-	delta := max - min
+	delta := M - m
 	if delta == 0 {
 		// it's gray
 		return HSL{0, 0, l}
@@ -68,21 +80,21 @@ func (c RGB) ToHSL() HSL {
 
 	// it's not gray
 	if l < 0.5 {
-		s = delta / (max + min)
+		s = delta / (M + m)
 	} else {
-		s = delta / (2 - max - min)
+		s = delta / (2 - M - m)
 	}
 
 	// hue
-	r2 := (((max - r) / 6) + (delta / 2)) / delta
-	g2 := (((max - g) / 6) + (delta / 2)) / delta
-	b2 := (((max - b) / 6) + (delta / 2)) / delta
+	r2 := (((M - r) / 6) + (delta / 2)) / delta
+	g2 := (((M - g) / 6) + (delta / 2)) / delta
+	b2 := (((M - b) / 6) + (delta / 2)) / delta
 	switch {
-	case r == max:
+	case r == M:
 		h = b2 - g2
-	case g == max:
+	case g == M:
 		h = (1.0 / 3.0) + r2 - b2
-	case b == max:
+	case b == M:
 		h = (2.0 / 3.0) + g2 - r2
 	}
 
@@ -104,8 +116,36 @@ func (c RGB) ToHTML() string {
 	return fmt.Sprintf("%02x%02x%02x", byte((c.R+delta)*255), byte((c.G+delta)*255), byte((c.B+delta)*255))
 }
 
+func (c RGB) RGBA() (r, g, b, a uint32) {
+	r = uint32(real.MapVal(c.R, 0, 1, 0, 0xffff))
+	g = uint32(real.MapVal(c.G, 0, 1, 0, 0xffff))
+	b = uint32(real.MapVal(c.B, 0, 1, 0, 0xffff))
+	a = 0xffff
+	return
+}
+
+var RGBModel color.Model = color.ModelFunc(rgbModel)
+
+func rgbModel(c color.Color) color.Color {
+	r, g, b, _ := c.RGBA()
+	return RGB{
+		real.MapVal(float64(r), 0, 0xffff, 0, 1),
+		real.MapVal(float64(g), 0, 0xffff, 0, 1),
+		real.MapVal(float64(b), 0, 0xffff, 0, 1),
+	}
+}
+
 type HSL struct {
-	H, S, L float64
+	H, S, L float64 // Hue, Saturation, Lightness values in [0, 1]
+}
+
+// Convert h, s, l values in the range [0, 255]^3
+func (HSL) constructor(h, s, l uint8) HSL {
+	return HSL{
+		real.MapVal(float64(h), 0, 0xff, 0, 1),
+		real.MapVal(float64(s), 0, 0xff, 0, 1),
+		real.MapVal(float64(l), 0, 0xff, 0, 1),
+	}
 }
 
 func hueToRGB(v1, v2, h float64) float64 {
@@ -124,6 +164,10 @@ func hueToRGB(v1, v2, h float64) float64 {
 		return v1 + (v2-v1)*((2.0/3.0)-h)*6
 	}
 	return v1
+}
+
+func (c HSL) RGBA() (r, g, b, a uint32) {
+	return c.ToRGB().RGBA()
 }
 
 func (c HSL) ToRGB() RGB {
@@ -154,4 +198,32 @@ func (c HSL) ToRGB() RGB {
 
 func (c HSL) ToHTML() string {
 	return c.ToRGB().ToHTML()
+}
+
+var HSLModel color.Model = color.ModelFunc(hslModel)
+
+func hslModel(c color.Color) color.Color {
+	return rgbModel(c).(RGB).ToHSL()
+}
+
+func New[T RGB | HSL](rh, gs, bl uint8) color.Color {
+	switch any(new(T)).(type) {
+	case *RGB:
+		return RGB{}.constructor(rh, gs, bl)
+	case *HSL:
+		return HSL{}.constructor(rh, gs, bl)
+	default:
+		panic("impossible")
+	}
+}
+
+func Random[T RGB | HSL]() color.Color {
+	switch any(new(T)).(type) {
+	case *RGB:
+		return RGB{rand.Float64(), rand.Float64(), rand.Float64()}
+	case *HSL:
+		return HSL{rand.Float64(), rand.Float64(), rand.Float64()}
+	default:
+		panic("impossible")
+	}
 }
