@@ -1,4 +1,4 @@
-module github.com/gerow/go-color
+module github.com/kendfss/go-color
 
 go 1.23.2
 
